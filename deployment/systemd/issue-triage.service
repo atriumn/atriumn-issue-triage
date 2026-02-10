@@ -1,0 +1,35 @@
+[Unit]
+Description=Atriumn Issue Triage - Opus-powered GitHub issue triage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jeff
+Group=jeff
+WorkingDirectory=/home/jeff/projects/atriumn-issue-triage
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=5
+
+# Environment
+EnvironmentFile=/home/jeff/projects/atriumn-issue-triage/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=issue-triage
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/issue-triage /tmp
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=4096
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
