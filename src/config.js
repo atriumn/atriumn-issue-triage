@@ -105,12 +105,13 @@ export function matchesNoAutoFix(repoName, issueTitle, issueBody) {
   return config.noAutoFixPatterns.some(pattern => pattern.test(text));
 }
 
+/** Environment config — uses getters so tests can set env vars after import */
 export const env = {
-  port: parseInt(process.env.PORT || '3847', 10),
-  webhookSecret: process.env.GITHUB_WEBHOOK_SECRET || '',
-  githubToken: process.env.GITHUB_TOKEN || '',
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
-  stateDir: process.env.STATE_DIR || '/var/lib/issue-triage',
-  ralphSpawnScript: process.env.RALPH_SPAWN_SCRIPT || '/home/jeff/projects/alloy/shared/scripts/ralph-spawn.sh',
-  ralphNotifyScript: process.env.RALPH_NOTIFY_SCRIPT || '/home/jeff/projects/alloy/shared/scripts/ralph-notify.sh',
+  get port() { return parseInt(process.env.PORT || '3847', 10); },
+  get webhookSecret() { return process.env.GITHUB_WEBHOOK_SECRET || ''; },
+  get githubToken() { return process.env.GITHUB_TOKEN || ''; },
+  get anthropicApiKey() { return process.env.ANTHROPIC_API_KEY || ''; },
+  get stateDir() { return process.env.STATE_DIR || '/var/lib/issue-triage'; },
+  get ralphSpawnScript() { return process.env.RALPH_SPAWN_SCRIPT || '/home/jeff/projects/alloy/shared/scripts/ralph-spawn.sh'; },
+  get ralphNotifyScript() { return process.env.RALPH_NOTIFY_SCRIPT || '/home/jeff/projects/alloy/shared/scripts/ralph-notify.sh'; },
 };
