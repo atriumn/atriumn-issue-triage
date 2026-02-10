@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { env, getRepoConfig } from './config.js';
 import { verifyWebhookSignature } from './security.js';
+import { processIssue as runPipeline } from './pipeline.js';
 
 const log = (level, msg, data) => {
   const entry = { ts: new Date().toISOString(), level, msg, ...data };
@@ -168,9 +169,12 @@ export function buildServer() {
 async function processIssue(repo, number, issue, repoConf) {
   log('info', 'Processing issue', { repo, number });
 
-  // Placeholder — analyzer, notifier, spawner, clarifier will be wired in next tasks
-  // For now, just log that we would process
-  log('info', 'Issue processing complete (pipeline not yet wired)', { repo, number });
+  const { analysis, action } = await runPipeline(repo, number, issue, repoConf);
+
+  log('info', 'Triage complete', { repo, number, action, confidence: analysis.confidence });
+
+  if (action === 'clarify') metrics.clarificationsPosted++;
+  if (action === 'auto-spawn') metrics.autoSpawned++;
   metrics.issuesProcessed++;
 }
 
