@@ -1,0 +1,22 @@
+{
+  "name": "atriumn-issue-triage",
+  "version": "1.0.0",
+  "description": "Opus-powered GitHub issue triage system",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/**/*.test.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@fastify/rate-limit": "^10.2.1",
+    "fastify": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
