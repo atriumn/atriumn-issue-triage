@@ -16,45 +16,56 @@ jobs:
           tags: tag:ci
 
       - name: Deploy to atriumn-box
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -e
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -t ed25519 "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-            # Pull latest code
-            cd /home/jeff/projects/atriumn-issue-triage
-            git pull origin main
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s << SCRIPT
+          set -e
 
-            # Install dependencies
-            npm ci --production
+          cd /home/jeff/projects/atriumn-issue-triage
 
-            # Create .env file from secrets
-            cat > .env << EOF
-            GITHUB_WEBHOOK_SECRET=${{ secrets.WEBHOOK_SECRET }}
-            GITHUB_TOKEN=${{ secrets.PAT_TOKEN }}
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            PORT=3847
-            STATE_DIR=/var/lib/issue-triage
-            RALPH_SPAWN_SCRIPT=/home/jeff/projects/alloy/shared/scripts/ralph-spawn.sh
-            RALPH_NOTIFY_SCRIPT=/home/jeff/projects/alloy/shared/scripts/ralph-notify.sh
-            EOF
-            chmod 600 .env
+          # Pull latest code
+          git pull origin main
 
-            # Create state directory
-            sudo mkdir -p /var/lib/issue-triage
-            sudo chown jeff:jeff /var/lib/issue-triage
+          # Install dependencies
+          npm ci --production
 
-            # Install/update systemd service
-            sudo cp deployment/systemd/issue-triage.service /etc/systemd/system/
-            sudo systemctl daemon-reload
-            sudo systemctl enable issue-triage
-            sudo systemctl restart issue-triage
+          # Write .env
+          cat > .env << 'ENVEOF'
+          GITHUB_WEBHOOK_SECRET=${WEBHOOK_SECRET}
+          GITHUB_TOKEN=${PAT_TOKEN}
+          CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+          PORT=3847
+          STATE_DIR=/var/lib/issue-triage
+          RALPH_SPAWN_SCRIPT=/home/jeff/projects/alloy/shared/scripts/ralph-spawn.sh
+          RALPH_NOTIFY_SCRIPT=/home/jeff/projects/alloy/shared/scripts/ralph-notify.sh
+          ENVEOF
+          chmod 600 .env
 
-            # Wait and verify
-            sleep 3
-            curl -f http://localhost:3847/health || exit 1
+          # Create state directory
+          sudo mkdir -p /var/lib/issue-triage
+          sudo chown jeff:jeff /var/lib/issue-triage
 
-            echo "Deployment successful"
+          # Install/update systemd service
+          sudo cp deployment/systemd/issue-triage.service /etc/systemd/system/
+          sudo systemctl daemon-reload
+          sudo systemctl enable issue-triage
+          sudo systemctl restart issue-triage
+
+          # Wait and verify
+          sleep 3
+          curl -f http://localhost:3847/health || exit 1
+
+          echo "Deployment successful"
+          SCRIPT
