@@ -79,48 +79,60 @@ export function buildServer() {
 
   // Deploy endpoint (for push events to main branch)
   app.post('/deploy', async (request, reply) => {
-    const signature = request.headers['x-hub-signature-256'];
-    const event = request.headers['x-github-event'];
-
-    // Verify signature
     try {
-      if (!verifyWebhookSignature(request.rawBody, signature)) {
-        log('error', 'Deploy webhook signature verification failed');
+      const signature = request.headers['x-hub-signature-256'];
+      const event = request.headers['x-github-event'];
+
+      log('info', 'Deploy webhook received', { event, hasSignature: !!signature, hasBody: !!request.rawBody });
+
+      // Verify signature
+      if (!request.rawBody || !signature) {
+        log('error', 'Missing signature or body');
+        return reply.code(400).send({ error: 'Missing signature or body' });
+      }
+
+      try {
+        if (!verifyWebhookSignature(request.rawBody, signature)) {
+          log('error', 'Deploy webhook signature verification failed');
+          return reply.code(401).send({ error: 'Invalid signature' });
+        }
+      } catch (err) {
+        log('error', 'Deploy signature verification error', { error: err.message });
         return reply.code(401).send({ error: 'Invalid signature' });
       }
-    } catch (err) {
-      log('error', 'Deploy signature verification error', { error: err.message });
-      return reply.code(500).send({ error: 'Signature verification failed' });
-    }
 
-    // Only handle push events
-    if (event !== 'push') {
-      log('info', 'Ignoring non-push deploy event', { event });
-      return { ok: true, message: `Ignoring event: ${event}` };
-    }
-
-    const { ref } = request.body;
-    
-    // Only deploy on pushes to main
-    if (ref !== 'refs/heads/main') {
-      log('info', 'Ignoring push to non-main branch', { ref });
-      return { ok: true, message: `Ignoring branch: ${ref}` };
-    }
-
-    log('info', 'Deploying from main branch');
-    
-    // Deploy asynchronously
-    deploy().then(result => {
-      if (result.success) {
-        log('info', 'Deployment successful', { output: result.output });
-      } else {
-        log('error', 'Deployment failed', { output: result.output });
+      // Only handle push events
+      if (event !== 'push') {
+        log('info', 'Ignoring non-push deploy event', { event });
+        return { ok: true, message: `Ignoring event: ${event}` };
       }
-    }).catch(err => {
-      log('error', 'Deployment error', { error: err.message });
-    });
 
-    return { ok: true, message: 'Deploying' };
+      const { ref } = request.body || {};
+      
+      // Only deploy on pushes to main
+      if (ref !== 'refs/heads/main') {
+        log('info', 'Ignoring push to non-main branch', { ref });
+        return { ok: true, message: `Ignoring branch: ${ref}` };
+      }
+
+      log('info', 'Deploying from main branch');
+      
+      // Deploy asynchronously
+      deploy().then(result => {
+        if (result.success) {
+          log('info', 'Deployment successful', { output: result.output });
+        } else {
+          log('error', 'Deployment failed', { output: result.output });
+        }
+      }).catch(err => {
+        log('error', 'Deployment error', { error: err.message, stack: err.stack });
+      });
+
+      return { ok: true, message: 'Deploying' };
+    } catch (err) {
+      log('error', 'Deploy endpoint error', { error: err.message, stack: err.stack });
+      return reply.code(500).send({ error: 'Internal error', message: err.message });
+    }
   });
 
   // Webhook endpoint
