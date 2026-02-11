@@ -11,7 +11,6 @@ export async function deploy() {
   const steps = [
     { name: 'git pull', cmd: 'git pull origin main' },
     { name: 'npm ci', cmd: 'npm ci --production' },
-    { name: 'restart', cmd: 'sudo systemctl restart issue-triage' },
   ];
 
   const output = [];
@@ -29,5 +28,16 @@ export async function deploy() {
     }
   }
 
+  // Restart in background after a short delay (let webhook response complete)
+  setTimeout(() => {
+    execAsync('sudo systemctl restart issue-triage', {
+      cwd: '/home/jeff/projects/atriumn-issue-triage',
+      timeout: 10000,
+    }).catch(err => {
+      console.error('Restart failed:', err.message);
+    });
+  }, 1000);
+
+  output.push('✅ restart: scheduled');
   return { success: true, output: output.join('\n') };
 }
