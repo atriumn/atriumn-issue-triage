@@ -3,6 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import { env, getRepoConfig } from './config.js';
 import { verifyWebhookSignature } from './security.js';
 import { processIssue as runPipeline } from './pipeline.js';
+import { deploy } from './deployer.js';
 
 const log = (level, msg, data) => {
   const entry = { ts: new Date().toISOString(), level, msg, ...data };
@@ -74,6 +75,52 @@ export function buildServer() {
   // Metrics
   app.get('/metrics', async () => {
     return { ...metrics, dedupSize: processed.size };
+  });
+
+  // Deploy endpoint (for push events to main branch)
+  app.post('/deploy', async (request, reply) => {
+    const signature = request.headers['x-hub-signature-256'];
+    const event = request.headers['x-github-event'];
+
+    // Verify signature
+    try {
+      if (!verifyWebhookSignature(request.rawBody, signature)) {
+        log('error', 'Deploy webhook signature verification failed');
+        return reply.code(401).send({ error: 'Invalid signature' });
+      }
+    } catch (err) {
+      log('error', 'Deploy signature verification error', { error: err.message });
+      return reply.code(500).send({ error: 'Signature verification failed' });
+    }
+
+    // Only handle push events
+    if (event !== 'push') {
+      log('info', 'Ignoring non-push deploy event', { event });
+      return { ok: true, message: `Ignoring event: ${event}` };
+    }
+
+    const { ref } = request.body;
+    
+    // Only deploy on pushes to main
+    if (ref !== 'refs/heads/main') {
+      log('info', 'Ignoring push to non-main branch', { ref });
+      return { ok: true, message: `Ignoring branch: ${ref}` };
+    }
+
+    log('info', 'Deploying from main branch');
+    
+    // Deploy asynchronously
+    deploy().then(result => {
+      if (result.success) {
+        log('info', 'Deployment successful', { output: result.output });
+      } else {
+        log('error', 'Deployment failed', { output: result.output });
+      }
+    }).catch(err => {
+      log('error', 'Deployment error', { error: err.message });
+    });
+
+    return { ok: true, message: 'Deploying' };
   });
 
   // Webhook endpoint
