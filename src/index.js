@@ -51,12 +51,19 @@ export function buildServer() {
     bodyLimit: 1024 * 1024, // 1MB
   });
 
-  // Remove default parsers so we can capture raw body for signature verification
+  // Remove default parsers so we can capture raw body for signature verification.
+  // GitHub may send application/x-www-form-urlencoded with a `payload` field
+  // containing JSON, even when the webhook is configured for application/json.
   app.removeAllContentTypeParsers();
   app.addContentTypeParser('*', { parseAs: 'buffer' }, (req, body, done) => {
     req.rawBody = body;
     try {
-      done(null, JSON.parse(body.toString()));
+      const str = body.toString();
+      if (str.startsWith('payload=')) {
+        done(null, JSON.parse(decodeURIComponent(str.slice(8))));
+      } else {
+        done(null, JSON.parse(str));
+      }
     } catch (err) {
       done(err, undefined);
     }
