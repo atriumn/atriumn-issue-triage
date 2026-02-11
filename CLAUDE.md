@@ -1,17 +1,14 @@
 # atriumn-issue-triage
 
-Opus-powered GitHub issue triage system. Receives webhooks, analyzes with Claude Opus, notifies via Telegram, and auto-spawns Ralph for fixable issues.
+Thin webhook relay for GitHub issue triage. Receives webhooks, notifies via Telegram, and spawns Ralph on `/ralph` comments.
 
 ## Project Structure
 
-- `src/index.js` — Fastify webhook server (port 3847), signature verification, deduplication, rate limiting
-- `src/analyzer.js` — Claude Opus integration: builds analysis prompts, parses JSON responses, determines triage action
-- `src/pipeline.js` — Orchestrates: analyze → act (clarify/spawn/notify) → always notify Telegram
-- `src/notifier.js` — Telegram notifications via ralph-notify.sh
+- `src/index.js` — Fastify webhook server (port 3847), signature verification, deduplication, rate limiting, handles `issues` and `issue_comment` events
+- `src/notifier.js` — Telegram notifications via Bot API (new issues + Ralph spawn)
 - `src/spawner.js` — Ralph auto-spawn via ralph-spawn.sh with prompt file
-- `src/clarifier.js` — Posts clarifying questions as GitHub issue comments
 - `src/security.js` — HMAC-SHA256 webhook signature verification
-- `src/config.js` — Per-repo config, confidence thresholds, env vars (lazy getters)
+- `src/config.js` — Per-repo config (`enabled`, `projectDir`), env vars (lazy getters)
 
 ## Commands
 
@@ -26,23 +23,17 @@ npm run dev       # Start with --watch for development
 - ESM (`type: module`), Node.js >=22
 - No TypeScript — uses JSDoc type annotations
 - `buildServer()` exported from index.js for test injection (no listen)
-- Pipeline uses dependency injection (`deps` param) for mocking in tests
 - Config env vars use lazy getters so tests can set process.env after import
-- Async issue processing: webhook responds immediately, pipeline runs in background
+- Async processing: webhook responds immediately, notify/spawn runs in background
 
-## Decision Logic (src/analyzer.js:determineAction)
+## Flow
 
-1. `needsClarification.length > 0` → `clarify`
-2. `!autoFixable` → `notify`
-3. Matches `noAutoFixPatterns` (security, credentials, migrations) → `notify`
-4. `!repoConf.autoSpawnEnabled` → `notify`
-5. `confidence >= 0.85` → `auto-spawn`
-6. `confidence >= 0.70` → `offer-fix`
-7. Otherwise → `notify`
+1. **New issue opened** → Telegram notification with issue details and `/ralph` hint
+2. **`/ralph` comment on issue** → Ralph spawned in tmux with issue context, Telegram notified
 
 ## Adding a New Repo
 
-Edit `repoConfig` in `src/config.js`. Each repo needs: `enabled`, `autoSpawnEnabled`, `priority`, `projectDir`, `noAutoFixPatterns`.
+Edit `repoConfig` in `src/config.js`. Each repo needs: `enabled`, `projectDir`.
 
 ## Logs
 

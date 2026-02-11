@@ -1,116 +1,92 @@
-import { execFile } from 'node:child_process';
 import { env } from './config.js';
 
 /**
- * @typedef {import('./analyzer.js').AnalysisResult} AnalysisResult
- * @typedef {import('./analyzer.js').TriageAction} TriageAction
- */
-
-const TYPE_EMOJI = {
-  bug: '\u{1F41B}',
-  feature: '\u{2728}',
-  enhancement: '\u{1F4A1}',
-  question: '\u{2753}',
-  docs: '\u{1F4DD}',
-  chore: '\u{1F9F9}',
-};
-
-const SEVERITY_LABEL = {
-  critical: 'CRITICAL',
-  high: 'HIGH',
-  medium: 'MEDIUM',
-  low: 'LOW',
-};
-
-/**
- * Format a Telegram notification message.
+ * Format a Telegram notification for a new issue.
  * @param {string} repo
  * @param {number} number
- * @param {AnalysisResult} analysis
- * @param {TriageAction} action
- * @param {string} issueTitle
+ * @param {object} issue
  * @returns {string}
  */
-export function formatMessage(repo, number, analysis, action, issueTitle) {
-  const emoji = TYPE_EMOJI[analysis.type] || '\u{1F4CB}';
-  const severity = SEVERITY_LABEL[analysis.severity] || analysis.severity;
-  const confidence = Math.round(analysis.confidence * 100);
+export function formatNewIssueMessage(repo, number, issue) {
   const issueUrl = `https://github.com/atriumn/${repo}/issues/${number}`;
-
-  let header;
-  switch (action) {
-    case 'auto-spawn':
-      header = `\u{1F527} Auto-fixing ${repo}#${number}`;
-      break;
-    case 'offer-fix':
-      header = `\u{1F916} Auto-fix available: ${repo}#${number}`;
-      break;
-    case 'clarify':
-      header = `\u{2753} Issue needs clarification: ${repo}#${number}`;
-      break;
-    default:
-      header = `${emoji} New Issue: ${repo}#${number}`;
-  }
+  const body = issue.body || '';
+  const preview = body.length > 200 ? body.slice(0, 200) + '...' : body;
 
   const lines = [
-    header,
+    `\u{1F4CB} New Issue: ${repo}#${number}`,
+    issue.title,
     '',
-    `Title: ${issueTitle}`,
-    `Type: ${analysis.type.toUpperCase()} | Severity: ${severity}`,
-    `Confidence: ${confidence}%`,
-    '',
-    `Analysis:`,
-    analysis.reasoning,
   ];
 
-  if (action === 'clarify' && analysis.needsClarification.length > 0) {
-    lines.push('', 'Questions:');
-    for (const q of analysis.needsClarification) {
-      lines.push(`- ${q}`);
-    }
+  if (preview) {
+    lines.push(preview, '');
   }
 
-  if (analysis.acceptanceCriteria.length > 0 && action !== 'clarify') {
-    lines.push('', 'Acceptance Criteria:');
-    for (const c of analysis.acceptanceCriteria) {
-      lines.push(`- ${c}`);
-    }
-  }
-
-  lines.push('', issueUrl);
+  lines.push(
+    `\u{1F517} ${issueUrl}`,
+    'Reply /ralph on the issue to auto-fix.',
+  );
 
   return lines.join('\n');
 }
 
 /**
- * Send a notification using ralph-notify.sh.
- * @param {string} message
- * @returns {Promise<void>}
+ * Format a Telegram notification for Ralph being spawned.
+ * @param {string} repo
+ * @param {number} number
+ * @param {string} issueTitle
+ * @returns {string}
  */
-export function sendNotification(message) {
-  const script = env.ralphNotifyScript;
-
-  return new Promise((resolve, reject) => {
-    execFile(script, [message], { timeout: 30_000 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(`Notification failed: ${error.message}${stderr ? ` (${stderr.trim()})` : ''}`));
-        return;
-      }
-      resolve();
-    });
-  });
+export function formatRalphSpawnedMessage(repo, number, issueTitle) {
+  return [
+    `\u{1F680} Ralph spawned: ${repo}#${number}`,
+    issueTitle,
+    `Session: ${repo}-${number}`,
+  ].join('\n');
 }
 
 /**
- * Format and send a triage notification to Telegram.
+ * Send a message to Telegram via the Bot API.
+ * @param {string} message
+ * @returns {Promise<void>}
+ */
+export async function sendNotification(message) {
+  const url = `https://api.telegram.org/bot${env.telegramBotToken}/sendMessage`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: env.telegramChatId,
+      text: message,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Telegram API error ${res.status}: ${body}`);
+  }
+}
+
+/**
+ * Notify about a new issue via Telegram.
  * @param {string} repo
  * @param {number} number
- * @param {AnalysisResult} analysis
- * @param {TriageAction} action
+ * @param {object} issue
+ * @returns {Promise<void>}
+ */
+export async function notifyNewIssue(repo, number, issue) {
+  const message = formatNewIssueMessage(repo, number, issue);
+  await sendNotification(message);
+}
+
+/**
+ * Notify about Ralph being spawned via Telegram.
+ * @param {string} repo
+ * @param {number} number
  * @param {string} issueTitle
  * @returns {Promise<void>}
  */
-export async function notifyTriage(repo, number, analysis, action, issueTitle) {
-  const message = formatMessage(repo, number, analysis, action, issueTitle);
+export async function notifyRalphSpawned(repo, number, issueTitle) {
+  const message = formatRalphSpawnedMessage(repo, number, issueTitle);
   await sendNotification(message);
 }

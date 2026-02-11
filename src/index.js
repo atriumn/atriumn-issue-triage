@@ -2,7 +2,8 @@ import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { env, getRepoConfig } from './config.js';
 import { verifyWebhookSignature } from './security.js';
-import { processIssue as runPipeline } from './pipeline.js';
+import { notifyNewIssue, notifyRalphSpawned } from './notifier.js';
+import { spawnRalph } from './spawner.js';
 
 const log = (level, msg, data) => {
   const entry = { ts: new Date().toISOString(), level, msg, ...data };
@@ -13,26 +14,23 @@ const log = (level, msg, data) => {
 const metrics = {
   startedAt: new Date().toISOString(),
   issuesReceived: 0,
-  issuesProcessed: 0,
+  issuesNotified: 0,
+  ralphSpawned: 0,
   issuesSkipped: 0,
-  autoSpawned: 0,
-  clarificationsPosted: 0,
   errors: 0,
 };
 
-/** Deduplication set: "repo#number" → timestamp */
+/** Deduplication set: "repo#number" or "ralph:repo#number" → timestamp */
 const processed = new Map();
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
-function isAlreadyProcessed(repo, number) {
-  const key = `${repo}#${number}`;
+function isDuplicate(key) {
   const ts = processed.get(key);
   if (ts && Date.now() - ts < DEDUP_TTL_MS) return true;
   return false;
 }
 
-function markProcessed(repo, number) {
-  const key = `${repo}#${number}`;
+function markProcessed(key) {
   processed.set(key, Date.now());
 }
 
@@ -59,7 +57,7 @@ export function buildServer() {
     try {
       const str = body.toString();
       if (str.startsWith('payload=')) {
-        done(null, JSON.parse(decodeURIComponent(str.slice(8))));
+        done(null, JSON.parse(decodeURIComponent(str.slice(8).replace(/\+/g, '%20'))));
       } else {
         done(null, JSON.parse(str));
       }
@@ -101,89 +99,128 @@ export function buildServer() {
       return reply.code(500).send({ error: 'Signature verification failed' });
     }
 
-    // Handle GitHub ping event (sent when webhook is first configured)
+    // Handle GitHub ping event
     if (event === 'ping') {
       log('info', 'Received ping event', { deliveryId });
       return { ok: true, message: 'pong' };
     }
 
-    // Only process issue events
-    if (event !== 'issues') {
-      log('info', 'Ignoring non-issue event', { event, deliveryId });
-      return { ok: true, message: `Ignoring event: ${event}` };
+    // Handle new issues
+    if (event === 'issues') {
+      return handleNewIssue(request, reply, deliveryId);
     }
 
-    const { action, issue, repository } = request.body;
-
-    // Only process opened issues (and optionally labeled/edited later)
-    if (action !== 'opened') {
-      log('info', 'Ignoring non-opened action', { action, deliveryId });
-      return { ok: true, message: `Ignoring action: ${action}` };
+    // Handle /ralph comments
+    if (event === 'issue_comment') {
+      return handleIssueComment(request, reply, deliveryId);
     }
 
-    metrics.issuesReceived++;
-    const repoName = repository?.name;
-    const issueNumber = issue?.number;
-
-    if (!repoName || !issueNumber) {
-      log('error', 'Missing repo name or issue number', { deliveryId });
-      return reply.code(400).send({ error: 'Malformed payload' });
-    }
-
-    log('info', 'Issue received', { repo: repoName, issue: issueNumber, title: issue.title });
-
-    // Check repo config
-    const repoConf = getRepoConfig(repoName);
-    if (!repoConf.enabled) {
-      log('info', 'Repo not enabled, skipping', { repo: repoName });
-      metrics.issuesSkipped++;
-      return { ok: true, message: 'Repo not enabled' };
-    }
-
-    // Dedup check
-    if (isAlreadyProcessed(repoName, issueNumber)) {
-      log('info', 'Issue already processed, skipping', { repo: repoName, issue: issueNumber });
-      metrics.issuesSkipped++;
-      return { ok: true, message: 'Already processed' };
-    }
-
-    // Mark as processed immediately to prevent concurrent processing
-    markProcessed(repoName, issueNumber);
-
-    // Process asynchronously — respond to GitHub quickly
-    processIssue(repoName, issueNumber, issue, repoConf).catch(err => {
-      log('error', 'Issue processing failed', {
-        repo: repoName,
-        issue: issueNumber,
-        error: err.message,
-      });
-      metrics.errors++;
-    });
-
-    return { ok: true, message: 'Processing' };
+    log('info', 'Ignoring event', { event, deliveryId });
+    return { ok: true, message: `Ignoring event: ${event}` };
   });
 
   return app;
 }
 
 /**
- * Process an issue through the triage pipeline.
- * This runs asynchronously after the webhook response.
- * @param {string} repo
- * @param {number} number
- * @param {object} issue
- * @param {import('./config.js').RepoConfig} repoConf
+ * Handle issues.opened — notify via Telegram.
  */
-async function processIssue(repo, number, issue, repoConf) {
-  log('info', 'Processing issue', { repo, number });
+function handleNewIssue(request, reply, deliveryId) {
+  const { action, issue, repository } = request.body;
 
-  const { analysis, action } = await runPipeline(repo, number, issue, repoConf);
+  if (action !== 'opened') {
+    log('info', 'Ignoring non-opened action', { action, deliveryId });
+    return { ok: true, message: `Ignoring action: ${action}` };
+  }
 
-  log('info', 'Triage complete', { repo, number, action, confidence: analysis.confidence });
+  const repoName = repository?.name;
+  const issueNumber = issue?.number;
 
-  if (action === 'clarify') metrics.clarificationsPosted++;
-  if (action === 'auto-spawn') metrics.autoSpawned++;
-  metrics.issuesProcessed++;
+  if (!repoName || !issueNumber) {
+    log('error', 'Missing repo name or issue number', { deliveryId });
+    return reply.code(400).send({ error: 'Malformed payload' });
+  }
+
+  metrics.issuesReceived++;
+
+  const repoConf = getRepoConfig(repoName);
+  if (!repoConf.enabled) {
+    log('info', 'Repo not enabled, skipping', { repo: repoName });
+    metrics.issuesSkipped++;
+    return { ok: true, message: 'Repo not enabled' };
+  }
+
+  const dedupKey = `issue:${repoName}#${issueNumber}`;
+  if (isDuplicate(dedupKey)) {
+    log('info', 'Issue already processed, skipping', { repo: repoName, issue: issueNumber });
+    metrics.issuesSkipped++;
+    return { ok: true, message: 'Already processed' };
+  }
+
+  markProcessed(dedupKey);
+  log('info', 'New issue received', { repo: repoName, issue: issueNumber, title: issue.title });
+
+  // Notify asynchronously
+  notifyNewIssue(repoName, issueNumber, issue).then(() => {
+    metrics.issuesNotified++;
+    log('info', 'Notification sent', { repo: repoName, issue: issueNumber });
+  }).catch(err => {
+    log('error', 'Notification failed', { repo: repoName, issue: issueNumber, error: err.message });
+    metrics.errors++;
+  });
+
+  return { ok: true, message: 'Notified' };
+}
+
+/**
+ * Handle issue_comment.created — spawn Ralph if comment starts with /ralph.
+ */
+function handleIssueComment(request, reply, deliveryId) {
+  const { action, comment, issue, repository } = request.body;
+
+  if (action !== 'created') {
+    return { ok: true, message: `Ignoring comment action: ${action}` };
+  }
+
+  const body = (comment?.body || '').trim();
+  if (!body.startsWith('/ralph')) {
+    return { ok: true, message: 'Not a /ralph command' };
+  }
+
+  const repoName = repository?.name;
+  const issueNumber = issue?.number;
+
+  if (!repoName || !issueNumber) {
+    log('error', 'Missing repo name or issue number in comment event', { deliveryId });
+    return reply.code(400).send({ error: 'Malformed payload' });
+  }
+
+  const repoConf = getRepoConfig(repoName);
+  if (!repoConf.enabled) {
+    log('info', 'Repo not enabled, skipping /ralph', { repo: repoName });
+    return { ok: true, message: 'Repo not enabled' };
+  }
+
+  const dedupKey = `ralph:${repoName}#${issueNumber}`;
+  if (isDuplicate(dedupKey)) {
+    log('info', 'Ralph already spawned for this issue', { repo: repoName, issue: issueNumber });
+    return { ok: true, message: 'Already spawned' };
+  }
+
+  markProcessed(dedupKey);
+  log('info', '/ralph command received', { repo: repoName, issue: issueNumber });
+
+  // Spawn and notify asynchronously
+  spawnRalph(repoName, issueNumber, issue).then(() => {
+    metrics.ralphSpawned++;
+    log('info', 'Ralph spawned', { repo: repoName, issue: issueNumber });
+    return notifyRalphSpawned(repoName, issueNumber, issue.title);
+  }).catch(err => {
+    log('error', 'Ralph spawn failed', { repo: repoName, issue: issueNumber, error: err.message });
+    metrics.errors++;
+  });
+
+  return { ok: true, message: 'Spawning Ralph' };
 }
 
 /** Start the server */
