@@ -20,9 +20,9 @@ Open a PR when done. Reference the issue in the PR description.`;
 
 /**
  * Spawn Ralph to fix a GitHub issue.
- * Writes the prompt to a temp file, then invokes ralph-spawn.sh
- * via systemd-run so Ralph runs in its own cgroup (not under the
- * triage service's memory limit).
+ * Writes the prompt to a file under /home/jeff (shared with container),
+ * then docker execs into alloy-jeff to run ralph-spawn.sh so Ralph
+ * lives in the container alongside OpenClaw.
  * @param {string} repo
  * @param {number} number
  * @param {object} issue
@@ -30,18 +30,17 @@ Open a PR when done. Reference the issue in the PR description.`;
  */
 export async function spawnRalph(repo, number, issue) {
   const prompt = buildPrompt(repo, number, issue);
-  const promptFile = `/tmp/issue-${repo}-${number}.txt`;
+  // Write under project dir (in service's ReadWritePaths) — visible inside container via /home/jeff mount
+  const promptFile = `/home/jeff/projects/atriumn-issue-triage/.prompts/issue-${repo}-${number}.txt`;
   await writeFile(promptFile, prompt, 'utf-8');
 
   const script = env.ralphSpawnScript;
+  const container = env.ralphContainer;
 
   try {
     await new Promise((resolve, reject) => {
       execFile(
-        'systemd-run',
-        [
-          '--user', '--scope',
-          '--unit', `ralph-${repo}-${number}`,
+        'docker', ['exec', container,
           script,
           '--project', repo, '--issue', String(number), '--prompt-file', promptFile,
         ],

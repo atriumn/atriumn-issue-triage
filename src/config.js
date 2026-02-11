@@ -43,4 +43,5 @@ export const env = {
   get telegramBotToken() { return process.env.TELEGRAM_BOT_TOKEN || ''; },
   get telegramChatId() { return process.env.TELEGRAM_CHAT_ID || ''; },
   get ralphSpawnScript() { return process.env.RALPH_SPAWN_SCRIPT || '/home/jeff/projects/alloy/shared/scripts/ralph-spawn.sh'; },
+  get ralphContainer() { return process.env.RALPH_CONTAINER || 'alloy-jeff'; },
 };

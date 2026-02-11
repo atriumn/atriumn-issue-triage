@@ -4,3 +4,4 @@ node_modules/
 .ralph-monitor.log
 .ralph-prompt.txt
 .ralph/
+.prompts/
