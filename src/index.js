@@ -52,7 +52,7 @@ export function buildServer() {
   });
 
   // Capture raw body for signature verification
-  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
+  app.addContentTypeParser('*', { parseAs: 'buffer' }, (req, body, done) => {
     req.rawBody = body;
     try {
       done(null, JSON.parse(body.toString()));
