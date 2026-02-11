@@ -174,10 +174,6 @@ export function parseAnalysisResult(text) {
  * @returns {Promise<AnalysisResult>}
  */
 export async function analyzeIssue(issue, repo, repoConf) {
-  if (!env.anthropicApiKey) {
-    throw new Error('ANTHROPIC_API_KEY not configured');
-  }
-
   const prompt = buildAnalysisPrompt(issue, repo, repoConf);
 
   const message = await getClient().messages.create({
