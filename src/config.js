@@ -110,7 +110,6 @@ export const env = {
   get port() { return parseInt(process.env.PORT || '3847', 10); },
   get webhookSecret() { return process.env.GITHUB_WEBHOOK_SECRET || ''; },
   get githubToken() { return process.env.GITHUB_TOKEN || ''; },
-  get anthropicApiKey() { return process.env.ANTHROPIC_API_KEY || ''; },
   get stateDir() { return process.env.STATE_DIR || '/var/lib/issue-triage'; },
   get ralphSpawnScript() { return process.env.RALPH_SPAWN_SCRIPT || '/home/jeff/projects/alloy/shared/scripts/ralph-spawn.sh'; },
   get ralphNotifyScript() { return process.env.RALPH_NOTIFY_SCRIPT || '/home/jeff/projects/alloy/shared/scripts/ralph-notify.sh'; },

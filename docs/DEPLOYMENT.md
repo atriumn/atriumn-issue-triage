@@ -40,7 +40,7 @@ nano .env
 Fill in:
 - `GITHUB_WEBHOOK_SECRET` — generate with `openssl rand -hex 32`
 - `GITHUB_TOKEN` — GitHub PAT (Settings → Developer settings → Personal access tokens)
-- `ANTHROPIC_API_KEY` — from Anthropic console
+- `CLAUDE_CODE_OAUTH_TOKEN` — generate with `claude setup-token` (for Claude Code Max users)
 
 ### 4. Start the service
 
@@ -131,6 +131,8 @@ journalctl -u issue-triage -n 50
 
 ### Opus analysis fails
 
-- Verify `ANTHROPIC_API_KEY` is valid
-- Check API rate limits at the Anthropic console
+- Verify `CLAUDE_CODE_OAUTH_TOKEN` is valid (run `claude setup-token` to refresh)
+- Check Claude Code usage limits
 - Look for error details in journal logs
+
+**Note:** If using an Anthropic API key instead of OAuth, set `ANTHROPIC_API_KEY` instead. The SDK will auto-detect either.

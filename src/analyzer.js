@@ -6,7 +6,8 @@ let client = null;
 
 function getClient() {
   if (!client) {
-    client = new Anthropic({ apiKey: env.anthropicApiKey });
+    // Anthropic SDK auto-detects CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY
+    client = new Anthropic();
   }
   return client;
 }
