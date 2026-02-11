@@ -3,14 +3,15 @@ set -euo pipefail
 
 echo "🚀 Setting up automated deployment..."
 
-# 1. Add /deploy endpoint to Tailscale funnel
-echo "📡 Configuring Tailscale funnel for /deploy endpoint..."
-tailscale serve --bg --https=443 --set-path=/deploy http://localhost:3847/deploy
-
-# 2. Give issue-triage service sudo permission to restart itself (no password)
-echo "🔐 Configuring sudo permissions..."
+# 1. Give issue-triage service sudo permission to restart itself (no password)
+# This needs to be done FIRST (requires manual sudo password entry)
+echo "🔐 Configuring sudo permissions (requires your password)..."
 echo "jeff ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart issue-triage" | sudo tee /etc/sudoers.d/issue-triage-deploy
 sudo chmod 440 /etc/sudoers.d/issue-triage-deploy
+
+# 2. Add /deploy endpoint to Tailscale funnel
+echo "📡 Configuring Tailscale funnel for /deploy endpoint..."
+tailscale serve --bg --https=443 --set-path=/deploy http://localhost:3847/deploy
 
 # 3. Ensure service is installed and running
 echo "⚙️  Installing systemd service..."
