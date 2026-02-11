@@ -51,7 +51,8 @@ export function buildServer() {
     bodyLimit: 1024 * 1024, // 1MB
   });
 
-  // Capture raw body for signature verification
+  // Remove default parsers so we can capture raw body for signature verification
+  app.removeAllContentTypeParsers();
   app.addContentTypeParser('*', { parseAs: 'buffer' }, (req, body, done) => {
     req.rawBody = body;
     try {
