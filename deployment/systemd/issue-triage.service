@@ -24,7 +24,7 @@ SyslogIdentifier=issue-triage
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/lib/issue-triage /tmp
+ReadWritePaths=/var/lib/issue-triage /tmp /home/jeff/projects/atriumn-issue-triage
 PrivateTmp=true
 
 # Resource limits
