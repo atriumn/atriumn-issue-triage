@@ -1,0 +1,53 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to atriumn-box
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            
+            # Pull latest code
+            cd /home/jeff/projects/atriumn-issue-triage
+            git pull origin main
+            
+            # Install dependencies
+            npm ci --production
+            
+            # Create .env file from secrets
+            cat > .env << EOF
+            GITHUB_WEBHOOK_SECRET=${{ secrets.GITHUB_WEBHOOK_SECRET }}
+            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN_SECRET }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            PORT=3847
+            STATE_DIR=/var/lib/issue-triage
+            RALPH_SPAWN_SCRIPT=/home/jeff/projects/alloy/shared/scripts/ralph-spawn.sh
+            RALPH_NOTIFY_SCRIPT=/home/jeff/projects/alloy/shared/scripts/ralph-notify.sh
+            EOF
+            chmod 600 .env
+            
+            # Create state directory
+            sudo mkdir -p /var/lib/issue-triage
+            sudo chown jeff:jeff /var/lib/issue-triage
+            
+            # Install/update systemd service
+            sudo cp deployment/systemd/issue-triage.service /etc/systemd/system/
+            sudo systemctl daemon-reload
+            sudo systemctl enable issue-triage
+            sudo systemctl restart issue-triage
+            
+            # Wait and verify
+            sleep 3
+            curl -f http://localhost:3847/health || exit 1
+            
+            echo "✅ Deployment successful"
